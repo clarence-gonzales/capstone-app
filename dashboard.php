@@ -39,6 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $imagePath = null;
     if (isset($_FILES['post_image']) && $_FILES['post_image']['error'] == UPLOAD_ERR_OK) {
         $targetDir = 'uploads/';
+        // Ensure the uploads directory exists
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0777, true);
+        }
         $imagePath = $targetDir . basename($_FILES['post_image']['name']);
         if (!move_uploaded_file($_FILES['post_image']['tmp_name'], $imagePath)) {
             echo "Error uploading image.";
@@ -51,19 +55,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->bind_param("ssss", $username, $postContent, $selectedInstrument, $imagePath);
 
     if ($stmt->execute()) {
-        echo "Post saved successfully";
+        // Redirect to prevent form resubmission on refresh
+        header("location: dashboard.php");
+        exit();
     } else {
         echo "Error saving post: " . $stmt->error;
     }
 
     $stmt->close();
-
-    header("location: dashboard.php");
-    exit();
 }
 
 // Fetch posts
 $posts = [];
+// Updated query to fetch username for the post owner to compare with session username for delete button
 $stmt = $conn->prepare("SELECT p.id, p.content, p.created_at, p.instrument, p.image, u.profile_picture, u.firstname, u.lastname, p.username, p.like_count, EXISTS(SELECT 1 FROM likes WHERE likes.post_id = p.id AND likes.username = ?) AS liked, (SELECT COUNT(*) FROM comments WHERE comments.post_id = p.id) AS comment_count FROM posts p JOIN users u ON p.username = u.username ORDER BY p.created_at DESC");
 $stmt->bind_param("s", $username);
 if ($stmt) {
@@ -91,7 +95,7 @@ if ($stmt) {
     die("Error preparing the query: " . $conn->error);
 }
 
-// Instruments
+// Instruments (This function remains unchanged)
 function getInstrumentImageUrl($instrument) {
     $instruments = [
         "Violinist" => "https://img.icons8.com/color/48/violin.png",
@@ -871,13 +875,13 @@ function getInstrumentImageUrl($instrument) {
                 ?>
                 <div class="post-item">
                     <div class="user-info">
-                        <a href="<?php echo $profileLink; ?>"><img src="<?php echo $post['profilePicture']; ?>" alt="<?php echo $post['firstName'] . ' ' . $post['lastName']; ?>" class="post-profile-picture"></a>
+                        <a href="<?php echo $profileLink; ?>"><img src="<?php echo $post['profilePicture'] ?: $defaultProfilePicture; ?>" alt="<?php echo $post['firstName'] . ' ' . $post['lastName']; ?>" class="post-profile-picture"></a>
                         <div class="post-header-details">
                             <div class="post-name-and-instrument">
-                                <a href="<?php echo $profileLink; ?>"><?php echo $post['firstName'] . ' ' . $post['lastName']; ?></a>
+                                <a href="<?php echo $profileLink; ?>"><?php echo htmlspecialchars($post['firstName'] . ' ' . $post['lastName']); ?></a>
                                 <?php if (!empty($post['instrument'])): ?>
                                     <span> is looking for </span>
-                                    <img src="<?php echo getInstrumentImageUrl($post['instrument']); ?>" alt="<?php echo $post['instrument']; ?>" style="width: 20px; height: 20px; vertical-align: middle;">
+                                    <img src="<?php echo getInstrumentImageUrl($post['instrument']); ?>" alt="<?php echo htmlspecialchars($post['instrument']); ?>" style="width: 20px; height: 20px; vertical-align: middle;">
                                     <span><?php echo htmlspecialchars($post['instrument']); ?></span>
                                 <?php endif; ?>
                             </div>
@@ -887,7 +891,7 @@ function getInstrumentImageUrl($instrument) {
                         </div>
                     </div>
 
-                    <div class="post-content"><?php echo $post['content']; ?></div>
+                    <div class="post-content"><?php echo nl2br(htmlspecialchars($post['content'])); ?></div>
 
                     <?php if (!empty($post['image'])): ?>
                         <div class="post-image">
@@ -916,7 +920,7 @@ function getInstrumentImageUrl($instrument) {
         <div class="profile-info">
             <img src="<?php echo htmlspecialchars($profilePicture); ?>" class="picture">
             <div>
-                <h3 class="name"><?php echo $firstName . ' ' . $lastName; ?></h3>
+                <h3 class="name"><?php echo htmlspecialchars($firstName . ' ' . $lastName); ?></h3>
                 <span id="selectedInstrumentalist" style="color: var(--text-light); font-size: 14px;"></span>
             </div>
         </div>
@@ -932,7 +936,7 @@ function getInstrumentImageUrl($instrument) {
                     <h4>Add to your post</h4>
                     <i class="fa-regular fa-image image" id="image-icon"></i>
                     <i class="fa-solid fa-guitar guitar" id="openModal"></i>
-                    <input type="file" name="post_image" id="file-input" style="display: none;" accept="image/*" multiple>
+                    <input type="file" name="post_image" id="file-input" style="display: none;" accept="image/*">
                 </div>
             </div>
 
@@ -977,9 +981,8 @@ function getInstrumentImageUrl($instrument) {
             <div id="commentList"></div>
         </div>
         <div class="comment-input-container">
-            <form id="commentForm" action="submit_comment.php" method="POST">
-                <div class="input-with-icon">
-                    <img src="<?php echo $profilePicture; ?>" alt="Profile Picture" class="profile-picture" style="width: 40px; height: 40px; border-radius: 50%;">
+            <form id="commentForm"> <div class="input-with-icon">
+                    <img src="<?php echo htmlspecialchars($profilePicture); ?>" alt="Profile Picture" class="profile-picture" style="width: 40px; height: 40px; border-radius: 50%;">
                     <textarea name="comment" id="commentInput" class="comment-input" placeholder="Write a comment..." required></textarea>
                     <button type="submit" class="comment-submit-btn">
                         <i class="fa-solid fa-paper-plane"></i>
@@ -1003,33 +1006,35 @@ function getInstrumentImageUrl($instrument) {
 
     document.getElementById('file-input').addEventListener('change', function(event) {
         const previewContainer = document.getElementById('image-preview-container');
-        previewContainer.innerHTML = '';
+        previewContainer.innerHTML = ''; // Clear previous previews
 
         const files = event.target.files;
         if (files.length > 0) {
-            Array.from(files).forEach(file => {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const imgWrapper = document.createElement('div');
-                    imgWrapper.classList.add('img-wrapper');
+            // Only allow one image for simplicity for now
+            const file = files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const imgWrapper = document.createElement('div');
+                imgWrapper.classList.add('img-wrapper');
 
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    img.classList.add('preview-image');
+                const img = document.createElement('img');
+                img.src = e.target.result;
+                img.classList.add('preview-image');
 
-                    const removeBtn = document.createElement('button');
-                    removeBtn.innerHTML = '×';
-                    removeBtn.classList.add('remove-btn');
-                    removeBtn.onclick = function() {
-                        imgWrapper.remove();
-                    };
-
-                    imgWrapper.appendChild(img);
-                    imgWrapper.appendChild(removeBtn);
-                    previewContainer.appendChild(imgWrapper);
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '×';
+                removeBtn.classList.add('remove-btn');
+                removeBtn.type = 'button'; // Important: Prevent form submission
+                removeBtn.onclick = function() {
+                    imgWrapper.remove();
+                    document.getElementById('file-input').value = ''; // Clear file input
                 };
-                reader.readAsDataURL(file);
-            });
+
+                imgWrapper.appendChild(img);
+                imgWrapper.appendChild(removeBtn);
+                previewContainer.appendChild(imgWrapper);
+            };
+            reader.readAsDataURL(file);
         }
     });
 
@@ -1075,7 +1080,7 @@ function getInstrumentImageUrl($instrument) {
             const postId = this.getAttribute('data-post-id');
             const likeCountSpan = document.getElementById(`like-count-${postId}`);
             const currentCount = parseInt(likeCountSpan.textContent) || 0;
-            const isLiked = this.classList.contains('liked');
+            // const isLiked = this.classList.contains('liked'); // Not strictly needed for the logic, but good for understanding
 
             fetch('like.php', {
                 method: 'POST',
@@ -1088,10 +1093,16 @@ function getInstrumentImageUrl($instrument) {
                     if (data.action === 'liked') {
                         likeCountSpan.textContent = currentCount + 1;
                         this.classList.add('liked');
+                        this.classList.remove('fa-regular'); // Change to solid heart
+                        this.classList.add('fa-solid');
                     } else if (data.action === 'unliked') {
                         likeCountSpan.textContent = currentCount - 1;
                         this.classList.remove('liked');
+                        this.classList.remove('fa-solid'); // Change back to regular heart
+                        this.classList.add('fa-regular');
                     }
+                } else {
+                    console.error('Like action failed:', data.message);
                 }
             })
             .catch(error => console.error('Error:', error));
@@ -1115,9 +1126,11 @@ function getInstrumentImageUrl($instrument) {
                     data.forEach(comment => {
                         const commentDiv = document.createElement('div');
                         commentDiv.classList.add('comment-container');
+                        // Use the profile picture from comment data, fall back to default
+                        const commentProfilePic = comment.profilePicture ? comment.profilePicture : 'images/default.jpg';
                         commentDiv.innerHTML = `
                             <div class="comment-header">
-                                <img src="${comment.profilePicture || 'images/default.jpg'}"
+                                <img src="${commentProfilePic}"
                                     alt="${comment.firstName || 'Unknown'} ${comment.lastName || 'Unknown'}"
                                     class="comment-profile-picture">
                                 <div class="comment-author">
@@ -1130,7 +1143,7 @@ function getInstrumentImageUrl($instrument) {
                         commentList.appendChild(commentDiv);
                     });
                 } else {
-                    commentList.innerHTML = '<p style="text-align: center; color: var(--text-light);">No comments yet. Be the first to comment!</p>';
+                    commentList.innerHTML = '<p class="no-comments-message" style="text-align: center; color: var(--text-light);">No comments yet. Be the first to comment!</p>';
                 }
             })
             .catch(error => console.error('Error fetching comments:', error));
@@ -1142,32 +1155,45 @@ function getInstrumentImageUrl($instrument) {
         document.getElementById('commentPopup').style.display = 'none';
     }
 
-    // Submit Comment
+    // Submit Comment (AJAX)
     document.getElementById('commentForm').addEventListener('submit', function(e) {
-        e.preventDefault();
+        e.preventDefault(); // Prevent the default form submission
+
         const formData = new FormData(this);
         const postId = document.getElementById('postIdInput').value;
         const commentInput = document.getElementById('commentInput');
+        const commentList = document.getElementById('commentList');
+        const commentCountSpan = document.getElementById(`comment-count-${postId}`);
 
         fetch('submit_comment.php', {
             method: 'POST',
             body: formData
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.message || 'Server error'); });
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.success) {
                 // Update comment count
-                const commentCountSpan = document.getElementById(`comment-count-${postId}`);
                 const currentCount = parseInt(commentCountSpan.textContent) || 0;
                 commentCountSpan.textContent = currentCount + 1;
 
-                // Add new comment to the list
-                const commentList = document.getElementById('commentList');
-                const commentDiv = document.createElement('div');
-                commentDiv.classList.add('comment-container');
-                commentDiv.innerHTML = `
+                // Remove "No comments yet" message if it exists
+                const noCommentsMessage = commentList.querySelector('.no-comments-message');
+                if (noCommentsMessage) {
+                    noCommentsMessage.remove();
+                }
+
+                // Create and append the new comment to the top of the list
+                const newCommentDiv = document.createElement('div');
+                newCommentDiv.classList.add('comment-container');
+                const newCommentProfilePic = data.comment.profilePicture ? data.comment.profilePicture : 'images/default.jpg';
+                newCommentDiv.innerHTML = `
                     <div class="comment-header">
-                        <img src="${data.comment.profilePicture || 'images/default.jpg'}"
+                        <img src="${newCommentProfilePic}"
                             alt="${data.comment.firstName || 'Unknown'} ${data.comment.lastName || 'Unknown'}"
                             class="comment-profile-picture">
                         <div class="comment-author">
@@ -1178,15 +1204,16 @@ function getInstrumentImageUrl($instrument) {
                     <p class="comment-text">${data.comment.text || ''}</p>
                 `;
 
-                // If "no comments" message exists, remove it
-                const noCommentsMsg = commentList.querySelector('p');
-                if (noCommentsMsg) commentList.removeChild(noCommentsMsg);
+                // Add to the beginning of the list
+                commentList.prepend(newCommentDiv);
 
-                commentList.prepend(commentDiv);
+                // Clear the comment input field
                 commentInput.value = '';
+            } else {
+                alert('Error submitting comment: ' + data.message);
             }
         })
-        .catch(error => console.error('Error submitting comment:', error));
+        .catch(error => console.error('Error submitting comment:', error.message));
     });
 
     // Delete Post (Simplified as there's no more toggle menu)
@@ -1202,9 +1229,20 @@ function getInstrumentImageUrl($instrument) {
                 if (data.success) {
                     // Find the post-item element by looking for a descendant with the data-post-id
                     // and then finding its closest ancestor with the class 'post-item'
-                    const postElement = document.querySelector(`.post-item .like-button[data-post-id="${postId}"]`).closest('.post-item');
+                    const postElement = document.querySelector(`.post-item .like-button[data-post-id="${postId}"]`);
                     if (postElement) {
-                        postElement.remove();
+                        postElement.closest('.post-item').remove();
+                    } else {
+                        // Fallback if the like button isn't found (e.g., if post has no likes)
+                        // This might require iterating through all .post-item or using a data-post-id attribute directly on post-item
+                        const allPosts = document.querySelectorAll('.post-item');
+                        allPosts.forEach(post => {
+                            // Assuming each post-item can hold a direct data-post-id attribute
+                            // You might need to add `data-post-id="<?php echo $post['id']; ?>"` to the .post-item div in PHP
+                            if (post.querySelector(`[data-post-id="${postId}"]`)) { // Check if any child has this data-post-id
+                                post.remove();
+                            }
+                        });
                     }
                 } else {
                     alert('Error deleting post: ' + data.message);

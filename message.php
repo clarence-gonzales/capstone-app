@@ -1,92 +1,25 @@
-<?php
-session_start();
-
-if(!isset($_SESSION['unique_id'])) {
-  header("location: login.php");
-}
-
-include 'connectdb.php';
-
-$username = isset($_GET['username']) ? $_GET['username'] : null;
-
-$loggedInUsername = $_SESSION['username'];
-
-// Use a session key that is unique per user
-$userCardsKey = 'userCards_' . $loggedInUsername;
-
-$userCards = $_SESSION[$userCardsKey] ?? [];
-if (isset($_GET['username'])) {
-  $username = $_GET['username'];
-  // $_SESSION['userCards'] = [];
-  
-  $stmt = $conn -> prepare("SELECT firstname, lastname, profile_picture FROM users WHERE username = ?");
-  $stmt -> bind_param("s", $username);
-  $stmt -> execute();
-  $stmt -> bind_result($firstname, $lastname, $profilePicture);
-  if ($stmt -> fetch()) {
-    $userDetails = [
-
-      'firstname' => $firstname,
-      'lastname' => $lastname,
-      'profilePicture' => $profilePicture ?: 'images/default.jpg',
-    ];
-
-    $exists = false;
-    foreach ($userCards as $card) {
-      if ($card['firstname'] === $firstname && $card['lastname'] === $lastname) {
-        $exists = true;
-        break;
-      }
-    }
-    
-    if (!$exists) {
-    array_unshift($userCards, $userDetails);
-    }
-  }
-  $stmt -> close();
-
-  $_SESSION[$userCardsKey] = $userCards;
-}
-
-// Message fetch
-$stmt = $conn -> prepare("SELECT m.id, m.message, m.created_at, u.firstname, u.lastname, u.profile_picture FROM sendmessages m
-JOIN users u ON  m.sender_username = u.username
-WHERE m.receiver_username = ?
-ORDER BY m.created_at DESC");
-$stmt->bind_param("s", $loggedInUsername);
-$stmt -> execute();
-$stmt -> bind_result($messageId, $messageContent,$createdAt, $firstname, $lastname, $profilePicture);
-$messages = [];
-$_SESSION['message_ids'] = [];
-while ($stmt -> fetch()) {
-  $messages[] = [
-    'id' => $messageId,
-    'message' => $messageContent,
-    'firstname' => $firstname,
-    'lastname' => $lastname,
-    'profilePicture' => $profilePicture,
-  ];
-}
-
-$stmt -> close();
-
-
-  $displayCards = array_merge($userCards, $messages);
-
-?>
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="X-UA-Compatible" content="ie=edge">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap">
-  <title>BandMate</title>
-
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap">
+  <title>BandMate - Messages</title>
   <style>
+    :root {
+      --primary-color: #4361ee;
+      --primary-dark: #3a56d4;
+      --text-color: #2b2d42;
+      --light-gray: #f8f9fa;
+      --medium-gray: #e9ecef;
+      --dark-gray: #6c757d;
+      --dark-bg: #1e1e2d;
+      --card-bg: #2a2a3a;
+      --hover-bg: #3a3a4a;
+      --border-color: #3a3a4a;
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -95,542 +28,778 @@ $stmt -> close();
 
     body {
       font-family: 'Poppins', sans-serif;
+      background-color: #f5f7fa;
+      color: var(--text-color);
+      line-height: 1.6;
     }
 
-    
-
-    /* message header */
-    .toggle-wrapper {
+    /* Main container */
+    .messaging-container {
       display: flex;
-      justify-content: center;
-      width: 100%;
-      margin-top: 10px;
-    }
-
-    .toggle-container {
-      display: flex;
-      width: 250px;
-      /* border-radius: 25px; */
+      max-width: 1200px;
+      margin: 20px auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
       overflow: hidden;
-      border: 2px solid #000000;
+      height: calc(100vh - 100px);
     }
 
-    .toggle-button {
-      flex: 1;
-      padding: 10px;
-      text-align: center;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    /* message container */
-    .parent-container {
+    /* Sidebar */
+    .conversations-sidebar {
+      width: 350px;
+      border-right: 1px solid var(--medium-gray);
+      background: white;
       display: flex;
-      justify-content: center;
-      align-items: center;
-      padding-left: 20px;
-      padding-right: 20px;
+      flex-direction: column;
     }
 
-    .message-container {
-      width: 150vh;
-      height: 85vh;
-      background-color: #292929;
+    .sidebar-header {
       padding: 20px;
-      border-radius: 15px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-      margin-top: 5px;
+      border-bottom: 1px solid var(--medium-gray);
     }
 
-    .message-header {
-      font-weight: bold;
+    .sidebar-header h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-color);
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 15px;
-      padding: 10px;
-      color: #FFFFFFFF;
     }
 
-
-    .message-header i{
-      font-size: 25px;
-      color: #ffffffff;
+    .sidebar-header h2 i {
+      color: var(--primary-color);
     }
 
-    /* serch style */
-    .message-container .search {
-      margin: 20px 0;
-      display: flex;
+    /* Search bar */
+    .search-container {
+      padding: 15px;
+      border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .search-box {
       position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 10px 15px 10px 40px;
+      border: 1px solid var(--medium-gray);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+    }
+
+    .search-box input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .search-box i {
+      position: absolute;
+      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--dark-gray);
+    }
+
+    /* Conversation list */
+    .conversation-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 5px 0;
+    }
+
+    .conversation-item {
+      display: flex;
       align-items: center;
-    }
-
-    .message-container .search input {
-      /* position: absolute; */
-      height: 42px;
-      width: calc(100% - 50px);
-      border: 1px solid #ccc;
-      padding: 0 13px;
-      font-size: 16px;
-      border-radius: 5px 0 0 5px;
-      outline: none;
-      /* opacity: 0; */
-      pointer-events: none;
-      transition: all 0.3s ease;
-    }
-
-    .message-container .search input.active {
-      /* opacity: 1; */
-      pointer-events: auto;
-    }
-
-    .message-container .search button {
-      width: 47px;
-      height: 42px;
-      border: none;
-      outline: none;
-      color: #333;
-      background: #fff;
-      font-size: 17px;
-      border-radius: 0 5px 5px 0;
+      padding: 15px 20px;
       cursor: pointer;
-      font-size: 17px;
-      border-radius: 0 5px 5px 0;
-      transition: all 0.3s ease;
+      transition: background-color 0.2s;
+      border-bottom: 1px solid var(--medium-gray);
     }
 
-    .message-container .search button.active {
-      color: #fff;
-      background: #333;
+    .conversation-item:hover {
+      background-color: var(--light-gray);
     }
 
-    .message-container .search button.active i::before {
-      content: "\f00d";
+    .conversation-item.active {
+      background-color: #f0f4ff;
     }
 
-    /* message card */
-    .message-card {
+    .conversation-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-right: 15px;
+    }
+
+    .conversation-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .conversation-name {
+      font-weight: 500;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .conversation-preview {
+      font-size: 0.85rem;
+      color: var(--dark-gray);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .conversation-meta {
       display: flex;
       flex-direction: column;
-      align-items: flex-start;
-      background: #222222;
-      padding: 20px;
-      border-radius: 15px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
-      margin-bottom: 15px;
-      height: 450px;
-      overflow-y: auto;
+      align-items: flex-end;
+      margin-left: 10px;
     }
 
-    :is(.message-card)::-webkit-scrollbar {
-      width: 0px;
+    .conversation-time {
+      font-size: 0.75rem;
+      color: var(--dark-gray);
+      margin-bottom: 5px;
     }
 
-    .message-card img {
-      height: 40px;
-      width: 40px;
+    .conversation-badge {
+      background-color: var(--primary-color);
+      color: white;
       border-radius: 50%;
-      margin-right: 10px;
-    }
-
-    .profile-container h4 {
-      font-size: 18px;
-    }
-
-    .profile-container {
+      width: 20px;
+      height: 20px;
       display: flex;
       align-items: center;
-      gap: 2px;
-      padding: 15px;
-      border-radius: 10px;
-      width: 100%;
-      color: #FFFFFF;
-      cursor: pointer;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 600;
     }
 
-    .profile-container:hover {
-      background-color: #444444;
+    /* Main chat area */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: white;
     }
 
-    .three-dots {
-      font-size: 20px;
-      color: #888888;
-      display: none;
-      margin-left: auto;
-      background-color: #222222;
+    .chat-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--medium-gray);
+      display: flex;
+      align-items: center;
+    }
+
+    .chat-header-avatar {
+      width: 50px;
+      height: 50px;
       border-radius: 50%;
-      padding: 10px 10px;
+      object-fit: cover;
+      margin-right: 15px;
+    }
+
+    .chat-header-info {
+      flex: 1;
+    }
+
+    .chat-header-name {
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+
+    .chat-header-status {
+      font-size: 0.85rem;
+      color: var(--dark-gray);
+    }
+
+    .chat-header-actions {
+      display: flex;
+      gap: 15px;
+    }
+
+    .chat-header-actions i {
+      color: var(--dark-gray);
       cursor: pointer;
-      transition: background-color 0.3s ease, outline-color 0.3s ease;
-      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
-      outline: 2px solid #888888;
+      font-size: 1.1rem;
+      transition: color 0.2s;
     }
 
-    .three-dots:hover {
-      background-color: #29292929;
-      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
-      outline-color: #888888; 
+    .chat-header-actions i:hover {
+      color: var(--primary-color);
     }
 
-    .profile-container:hover .three-dots {
+    /* Messages container */
+    .messages-container {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background-color: #f9f9f9;
+      background-image:
+        linear-gradient(#efefef 1px, transparent 1px),
+        linear-gradient(90deg, #efefef 1px, transparent 1px);
+      background-size: 20px 20px;
+      display: flex; /* Make it a flex container */
+      flex-direction: column; /* Stack messages vertically */
+    }
+
+    .message {
+      display: flex;
+      margin-bottom: 15px;
+      max-width: 70%;
+    }
+
+    .message.incoming {
+      align-self: flex-start;
+    }
+
+    .message.outgoing {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .message-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin: 0 10px;
+    }
+
+    .message-content {
+      padding: 12px 16px;
+      border-radius: 18px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      position: relative;
+      word-wrap: break-word;
+    }
+
+    .message.incoming .message-content {
+      background: white;
+      color: var(--text-color);
+      border-radius: 0 18px 18px 18px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .message.outgoing .message-content {
+      background: var(--primary-color);
+      color: white;
+      border-radius: 18px 0 18px 18px;
+    }
+
+    .message-time {
+      font-size: 0.7rem;
+      color: var(--dark-gray);
+      margin-top: 5px;
+      text-align: right;
+    }
+
+    .message.outgoing .message-time {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    /* Message input */
+    .message-input-container {
+      padding: 15px 20px;
+      border-top: 1px solid var(--medium-gray);
+      background: white;
+    }
+
+    .message-input-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .message-input {
+      flex: 1;
+      padding: 12px 15px;
+      border: 1px solid var(--medium-gray);
+      border-radius: 25px;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+      resize: none;
+      max-height: 120px;
+    }
+
+    .message-input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .send-button {
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .send-button:hover {
+      background: var(--primary-dark);
+    }
+
+    /* Dropdown menu */
+    .dropdown-menu {
+      position: absolute;
+      right: 10px;
+      top: 60px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      padding: 8px 0;
+      min-width: 180px;
+      z-index: 100;
+      display: none;
+    }
+
+    .dropdown-menu.show {
       display: block;
     }
 
-    /* Modal styles */
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.5);
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-      background-color: #F8F8F8;
-      box-shadow: rgba(0, 0, 0, 0.5);
+    .dropdown-item {
+      padding: 10px 15px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-color);
+      transition: background-color 0.2s;
     }
 
-    .modal-content {
-      background: #fff;
-      padding: 20px;
-      border-radius: 10px;
-      width: 150vh;
-      height: 90vh;
+    .dropdown-item:hover {
+      background: var(--light-gray);
+    }
+
+    .dropdown-item.danger {
+      color: #e63946;
+    }
+
+    /* Empty state */
+    .empty-state {
       display: flex;
       flex-direction: column;
-      overflow-y: hidden;
-      background: #FFFFFF;
-      box-shadow: rgba(0, 0, 0, 0.5);
-    }
-
-    .profile-header {
-      display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 15px;
-      width: 100%;
-      border-bottom: 2px solid #ccc;
-      padding-bottom: 10px;
+      justify-content: center;
+      height: 100%;
+      text-align: center;
+      padding: 40px;
+      color: var(--dark-gray);
     }
 
-    .profile-details {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: #333;
+    .empty-state i {
+      font-size: 3rem;
+      color: var(--medium-gray);
+      margin-bottom: 20px;
     }
 
-    .profile-details img {
-      height: 80px;
-      width: 80px;
-      border-radius: 50%;
-    }
-
-    .user-info {
-      display: flex;
-      flex-direction: column; /* Stack elements vertically */
-    }
-
-    .profile-details h4 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: bold;
-    }
-
-    .profile-details p {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 300;
-    }
-
-    .close-btn {
-      border: none;
-      font-size: 30px;
-      color: #fff;
-      font-weight: bold;
-      cursor: pointer;
-      color: #333;
-      transition: 0.3s;
-    }
-
-    .close-btn:hover {
-      opacity: 0.7;
-    }
-
-    .modal-body {
-      flex: 1;
-      overflow-y: auto;
+    .empty-state h4 {
+      font-size: 1.2rem;
+      color: var(--dark-gray);
       margin-bottom: 10px;
     }
 
-    /* dropdown */
-    .dropdown-menu {
-      display: none;
-      position: absolute;
-      /* top: 350px; */
-      left: 500px;
-      background-color: #222222;
-      border: 1px solid #444444;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
-      z-index: 1000;
-      padding: 10px;
-      list-style: none;
-      margin: 0;
-      width: 150px;
+    .empty-state p {
+      color: var(--dark-gray);
+      font-size: 0.9rem;
+      max-width: 300px;
     }
 
-  .dropdown-menu li {
-    padding: 10px;
-    color: #FFFFFF;
-    cursor: pointer;
-  }
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .messaging-container {
+        flex-direction: column;
+        height: auto;
+      }
 
-  .dropdown-menu li:hover {
-    background-color: #444444;
-    border-radius: 10px;
-  }
+      .conversations-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--medium-gray);
+      }
 
-  /* Position adjustment for dropdown menu */
-  .three-dots-container {
-    position: relative;
-  }
-
-  .three-dots {
-    z-index: 1;
-  }
-
-
-  /* Chat Box */
-  .chat-box {
-    height: 500px;
-    overflow-y: auto;
-    background: #F7F7F7;
-    border-radius: 10px;
-    padding: 10px 30px 20px 30px;
-    box-shadow: inset 0 32px 32px -32px rgb(0 0 0 / 5%),
-                inset 0 -32px 32px -32px rgb(0 0 0 / 5%);
-  }
-
-  :is(.chat-box)::-webkit-scrollbar {
-    width: 0px;
-  }
-
-  .chat-box .chat p {
-    margin: 15px 0;
-  }
-
-  .chat-box .chat p {
-    word-wrap: break-word;
-    padding: 8px 16px;
-    box-shadow: 0 0 32px rgb(0 0 0 / 8%),
-                0 16px 16px -16px rgb(0 0 0 / 10%);
-  }
-
-  .chat-box .outgoing {
-    display: flex;
-  }
-
-  .outgoing .details {
-    margin-left: auto;
-    max-width: calc(100% - 130px);
-  }
-
-  .outgoing .details p {
-    background: #333;
-    color: #FFF;
-    border-radius: 18px 18px 0 18px;
-  }
-
-  .chat-box .incoming {
-    display: flex;
-    align-items: flex-end;
-  }
-
-  .chat-box .incoming img {
-    height: 35px;
-    width: 35px;
-    border-radius: 50%;
-  }
-
-  .incoming .details {
-    margin-left: 10px;
-    margin-right: auto;
-    max-width: calc(100% - 130px);
-  }
-
-  .incoming .details p {
-    margin-left: 10px;
-  }
-
-  .incoming .details p {
-    color: #333;
-    background: #FFF;
-    border-radius: 18px 18px 18px 0;
-  }
-
-  .modal .typing-area {
-    padding: 18px 30px;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .typing-area input{
-    height: 45px;
-    width: calc(100% - 58px);
-    font-size: 17px;
-    border: 1px solid #ccc;
-    padding: 0 13px;
-    border-radius: 5px 0 0 5px;
-    outline: none;
-  }
-
-  .typing-area button {
-    width: 55px;
-    border: none;
-    outline: none;
-    background: #333;
-    color: #fff;
-    font-size: 19px;
-    cursor: pointer;
-    border-radius: 0 5px 5px 0;
-    transition: 0.3s;
-  }
-
-  .typing-area button:hover {
-    opacity: 0.7;
-  }
-
+      .chat-area {
+        height: 60vh;
+      }
+    }
   </style>
 </head>
 <body>
   <?php include_once "component/navs.php"; ?>
 
-  <header>
-    <?php
-      include_once "connectdb.php";
-      $sql = mysqli_query($conn, "SELECT * FROM users WHERE unique_id = {$_SESSION['unique_id']}");
-      if(mysqli_num_rows($sql) > 0) {
-        $row = mysqli_fetch_assoc($sql);
-      }
-    ?>
-  </header>
-
-  <!-- <div class="toggle-wrapper">
-    <div class="toggle-container">
-      <div class="toggle-button followers">Inbox</div>
-    </div>
-  </div> -->
-
-  <div class="parent-container">
-    <div class="message-container">
-      <div class="message-header">
-        <i class="fa-solid fa-message"></i><h4>Messages</h4>
+  <div class="messaging-container">
+    <div class="conversations-sidebar">
+      <div class="sidebar-header">
+        <h2><i class="fas fa-message"></i> Messages</h2>
       </div>
 
-      <div class="search">
-        <input type="text" placeholder="Enter name to search...">
-        <button><i class="fa-solid fa-search"></i></button>
-      </div>
-
-      <!-- user details -->
-      <div class="message-card">
-      <?php if (!empty($displayCards)): ?>
-        <?php foreach ($displayCards as $card): ?>
-
-          <div class="profile-container" data-username="<?php echo htmlspecialchars($card['firstname'] . $card['lastname']); ?>">
-          <img src="<?php echo htmlspecialchars($card['profilePicture']); ?>" alt="Profile Picture">
-            <h4><?php echo htmlspecialchars($card['firstname'] . ' ' . $card['lastname']); ?></h4>
-            <i class="fa-solid fa-ellipsis three-dots"></i> 
-            <ul class="dropdown-menu">
-              <li onclick="deleteChat()">Delete Chat</li>
-                <!-- <li onclick="markAsRead()">Mark as Read</li> -->
-            </ul>
-          </div>
-
-      <?php endforeach ?>
-      <?php else: ?>
-        <div class="message-card">
-          <i class="fa-solid fa-user-circle"></i>
-          <h4>No message</h4>
+      <div class="search-container">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="conversation-search" placeholder="Search conversations...">
         </div>
-        <?php endif; ?>
       </div>
 
-        <!-- message display -->
-        
+      <div class="conversation-list">
+        <div class="empty-state" id="conversations-empty-state">
+          <i class="fas fa-comment-dots"></i>
+          <h4>Loading conversations...</h4>
+          <p>Please wait while we fetch your chats.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-area">
+      <div class="chat-header">
+        <img src="images/default.jpg" alt="Profile" class="chat-header-avatar" id="chat-header-avatar">
+        <div class="chat-header-info">
+          <div class="chat-header-name" id="chat-header-name">Select a conversation</div>
+          <div class="chat-header-status" id="chat-header-status"></div>
+        </div>
+        <div class="chat-header-actions">
+          <i class="fas fa-phone"></i>
+          <i class="fas fa-video"></i>
+          <i class="fas fa-ellipsis-v" id="chat-menu-toggle"></i>
+        </div>
+
+        <div class="dropdown-menu" id="chat-dropdown">
+          <div class="dropdown-item">Mark as unread</div>
+          <div class="dropdown-item">Mute notifications</div>
+          <div class="dropdown-item danger">Delete conversation</div>
+        </div>
+      </div>
+
+      <div class="messages-container" id="messages-container">
+        <div class="empty-state" id="messages-empty-state">
+          <i class="fas fa-comments"></i>
+          <h4>No conversation selected</h4>
+          <p>Select a conversation from the sidebar to view messages.</p>
+        </div>
+        </div>
+
+      <div class="message-input-container">
+        <div class="message-input-box">
+          <textarea class="message-input" id="message-input" placeholder="Type a message..." disabled></textarea>
+          <button class="send-button" id="send-button" disabled>
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
+    // --- Global Variables ---
+    const currentUserId = <?php echo isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 'null'; ?>; // Get current user ID from PHP session
+    let selectedConversationId = null;
+    let selectedConversationOtherUser = null; // Store information about the other user in the selected conversation
 
-    // user details in message card
-    function openModal(profilePicture, fullName) {
-      document.getElementById('profilePicture').src = profilePicture;
-      document.getElementById('fullName').textContent = fullName;
-      document.getElementById('userModal').style.display = 'flex';
+    // --- DOM Elements ---
+    const conversationListDiv = document.querySelector('.conversation-list');
+    const messagesContainer = document.getElementById('messages-container');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const chatHeaderName = document.getElementById('chat-header-name');
+    const chatHeaderStatus = document.getElementById('chat-header-status');
+    const chatHeaderAvatar = document.getElementById('chat-header-avatar');
+    const conversationsEmptyState = document.getElementById('conversations-empty-state');
+    const messagesEmptyState = document.getElementById('messages-empty-state');
+    const conversationSearchInput = document.getElementById('conversation-search');
+
+    // --- Helper Functions ---
+    function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    function closeModal() {
-      document.getElementById('userModal').style.display = 'none';
+    function formatDate(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleDateString();
     }
 
-    document.querySelectorAll('.profile-container').forEach(container => {
-      container.addEventListener('click', function () {
+    function showEmptyState(element, show) {
+        element.style.display = show ? 'flex' : 'none';
+    }
 
-        const profilePicture = this.querySelector('img').src;
-        const fullName = this.querySelector('h4').textContent;
-        openModal(profilePicture, fullName);
-      });
+    function enableMessageInput(enable) {
+        messageInput.disabled = !enable;
+        sendButton.disabled = !enable;
+    }
+
+    function scrollToBottom(element) {
+        element.scrollTop = element.scrollHeight;
+    }
+
+    // --- Fetch and Render Conversations ---
+    async function fetchConversations() {
+        showEmptyState(conversationsEmptyState, true);
+        try {
+            const response = await fetch('get_conversations.php');
+            const conversations = await response.json();
+
+            conversationListDiv.innerHTML = ''; // Clear existing list
+
+            if (conversations.length === 0) {
+                conversationListDiv.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-comment-dots"></i>
+                        <h4>No conversations yet</h4>
+                        <p>Start a new conversation by searching for users or connecting with bandmates.</p>
+                    </div>
+                `;
+            } else {
+                conversations.forEach(card => {
+                    const conversationItem = document.createElement('div');
+                    conversationItem.classList.add('conversation-item');
+                    conversationItem.setAttribute('data-conversation-id', card.conversation_id);
+                    conversationItem.setAttribute('data-other-user-id', card.other_user_id);
+                    conversationItem.setAttribute('data-other-user-name', `${card.firstname} ${card.lastname}`);
+                    conversationItem.setAttribute('data-other-user-avatar', card.profilePicture || 'images/default.jpg'); // Default image if none
+
+                    let lastMessagePreview = card.last_message_preview ? card.last_message_preview : 'No messages yet.';
+                    if (lastMessagePreview.length > 30) {
+                        lastMessagePreview = lastMessagePreview.substring(0, 27) + '...';
+                    }
+
+                    const unreadBadge = card.unread_count > 0 ? `<div class="conversation-badge">${card.unread_count}</div>` : '';
+                    const lastMessageTime = card.last_message_time ? formatTime(card.last_message_time) : '';
+
+
+                    conversationItem.innerHTML = `
+                        <img src="${htmlspecialchars(card.profilePicture || 'images/default.jpg')}" alt="Profile" class="conversation-avatar">
+                        <div class="conversation-details">
+                            <div class="conversation-name">${htmlspecialchars(card.firstname + ' ' + card.lastname)}</div>
+                            <div class="conversation-preview">${htmlspecialchars(lastMessagePreview)}</div>
+                        </div>
+                        <div class="conversation-meta">
+                            <div class="conversation-time">${lastMessageTime}</div>
+                            ${unreadBadge}
+                        </div>
+                    `;
+                    conversationListDiv.appendChild(conversationItem);
+
+                    // Add click listener for each conversation item
+                    conversationItem.addEventListener('click', () => selectConversation(card.conversation_id, card.firstname, card.lastname, card.profilePicture, card.other_user_id));
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching conversations:', error);
+            conversationListDiv.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <h4>Failed to load conversations</h4>
+                    <p>Please try again later.</p>
+                </div>
+            `;
+        } finally {
+            showEmptyState(conversationsEmptyState, false);
+        }
+    }
+
+    // --- Fetch and Render Messages ---
+    async function fetchMessages(conversationId) {
+        showEmptyState(messagesEmptyState, true);
+        messagesContainer.innerHTML = ''; // Clear previous messages
+        try {
+            const response = await fetch(`get_messages.php?conversation_id=${conversationId}`);
+            const messages = await response.json();
+
+            showEmptyState(messagesEmptyState, false);
+
+            if (messages.length === 0) {
+                messagesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-comments"></i>
+                        <h4>No messages yet</h4>
+                        <p>Be the first to send a message in this conversation!</p>
+                    </div>
+                `;
+            } else {
+                messages.forEach(msg => {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.classList.add('message');
+                    messageDiv.classList.add(msg.sender_id == currentUserId ? 'outgoing' : 'incoming'); // Determine if incoming or outgoing
+
+                    messageDiv.innerHTML = `
+                        <img src="${htmlspecialchars(msg.profilePicture || 'images/default.jpg')}" alt="Avatar" class="message-avatar">
+                        <div class="message-content">
+                            ${htmlspecialchars(msg.message_content)}
+                            <div class="message-time">${formatTime(msg.timestamp)}</div>
+                        </div>
+                    `;
+                    messagesContainer.appendChild(messageDiv);
+                });
+                scrollToBottom(messagesContainer);
+            }
+        } catch (error) {
+            console.error('Error fetching messages:', error);
+            messagesContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <h4>Failed to load messages</h4>
+                    <p>Please try again later.</p>
+                </div>
+            `;
+        }
+    }
+
+    // --- Select Conversation Handler ---
+    function selectConversation(convId, firstname, lastname, profilePicture, otherUserId) {
+        // Remove active class from all conversations
+        document.querySelectorAll('.conversation-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        // Add active class to the clicked conversation
+        const selectedItem = document.querySelector(`.conversation-item[data-conversation-id="${convId}"]`);
+        if (selectedItem) {
+            selectedItem.classList.add('active');
+            // Remove unread badge if present
+            const unreadBadge = selectedItem.querySelector('.conversation-badge');
+            if (unreadBadge) {
+                unreadBadge.remove();
+            }
+        }
+
+        selectedConversationId = convId;
+        selectedConversationOtherUser = {
+            id: otherUserId,
+            name: `${firstname} ${lastname}`,
+            avatar: profilePicture || 'images/default.jpg'
+        };
+
+        // Update chat header
+        chatHeaderName.textContent = `${firstname} ${lastname}`;
+        chatHeaderAvatar.src = profilePicture || 'images/default.jpg';
+        chatHeaderStatus.textContent = 'Online'; // You'd update this dynamically with a real-time system
+
+        enableMessageInput(true); // Enable message input and send button
+        fetchMessages(selectedConversationId); // Load messages for the selected conversation
+    }
+
+    // --- Send Message Handler ---
+    async function sendMessage() {
+        const messageContent = messageInput.value.trim();
+        if (!messageContent || !selectedConversationId) {
+            return; // Don't send empty messages or if no conversation is selected
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('conversation_id', selectedConversationId);
+            formData.append('message_content', messageContent);
+
+            const response = await fetch('send_message.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Append the new message to the chat area immediately
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', 'outgoing'); // It's always outgoing if sent by current user
+
+                messageDiv.innerHTML = `
+                    <img src="${htmlspecialchars(selectedConversationOtherUser.avatar)}" alt="Avatar" class="message-avatar">
+                    <div class="message-content">
+                        ${htmlspecialchars(messageContent)}
+                        <div class="message-time">${formatTime(new Date().toISOString())}</div>
+                    </div>
+                `;
+                messagesContainer.appendChild(messageDiv);
+                scrollToBottom(messagesContainer);
+                messageInput.value = ''; // Clear input field
+
+                // Optionally, update the conversation list preview for the just sent message
+                const currentConvItem = document.querySelector(`.conversation-item[data-conversation-id="${selectedConversationId}"]`);
+                if (currentConvItem) {
+                    const previewDiv = currentConvItem.querySelector('.conversation-preview');
+                    if (previewDiv) {
+                        previewDiv.textContent = messageContent.length > 30 ? messageContent.substring(0, 27) + '...' : messageContent;
+                    }
+                    const timeDiv = currentConvItem.querySelector('.conversation-time');
+                    if (timeDiv) {
+                        timeDiv.textContent = formatTime(new Date().toISOString());
+                    }
+                    // Move the current conversation to the top if you like
+                    // conversationListDiv.prepend(currentConvItem);
+                }
+            } else {
+                alert('Error sending message: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('An error occurred while sending the message.');
+        }
+    }
+
+    // --- Event Listeners ---
+    document.getElementById('chat-menu-toggle').addEventListener('click', function(e) {
+        e.stopPropagation();
+        document.getElementById('chat-dropdown').classList.toggle('show');
     });
 
-    // Search in message-card
-    const searchBar = document.querySelector(".message-container .search input"),
-    searchBtn = document.querySelector(".message-container .search button");
-    messageCard = document.querySelector(".message-card");
-
-    searchBtn.onclick = ()=> {
-      searchBar.classList.toggle("active");
-      searchBar.focus(); 
-      searchBtn.classList.toggle("active");
-    }
-
-
-    // three dots
-    document.querySelectorAll('.three-dots').forEach(threeDots => {
-      threeDots.addEventListener('click', function (event) {
-        event.stopPropagation();
-        const dropdown = this.nextElementSibling;
-        closeAllDropdowns();
-        dropdown.style.display = dropdown.style.display === 'block' ? 'none' :'block';
-      });
+    document.addEventListener('click', function() {
+        document.getElementById('chat-dropdown').classList.remove('show');
     });
 
-    document.addEventListener('click', closeAllDropdowns);
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { // Send on Enter, allow Shift+Enter for new line
+            e.preventDefault();
+            sendMessage();
+        }
+    });
 
-    function closeAllDropdowns() {
-      document.querySelectorAll('.dropdown-menu').forEach(menu => {
-        menu.style.display = 'none';
-      });
+    conversationSearchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        document.querySelectorAll('.conversation-item').forEach(item => {
+            const name = item.querySelector('.conversation-name').textContent.toLowerCase();
+            item.style.display = name.includes(searchTerm) ? 'flex' : 'none';
+        });
+    });
+
+    // Helper for HTML escaping
+    function htmlspecialchars(str) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
     }
 
-    document.querySelectorAll('.profile-container').forEach(container => {
-    container.addEventListener('click', function () {
-    const username = this.getAttribute('data-username');
-    if (username) {
-      window.location.href = `chat.php?username=${encodeURIComponent(username)}`;
-    }
-  });
-});
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        if (currentUserId === null) {
+            // Handle case where user is not logged in, redirect or show error
+            conversationListDiv.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-lock"></i>
+                    <h4>Not logged in</h4>
+                    <p>Please log in to view your messages.</p>
+                </div>
+            `;
+            showEmptyState(conversationsEmptyState, false); // Hide loading state
+            enableMessageInput(false);
+            return;
+        }
+        fetchConversations();
+    });
 
   </script>
-
-  
-
-  <!-- <script src="javascript/chat.js"></script> -->
-
 </body>
 </html>
