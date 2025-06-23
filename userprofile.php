@@ -103,36 +103,7 @@ if ($is_own_profile) {
             font-family: 'Poppins', sans-serif;
         }
 
-        /* Navbar */
-        .navbar {
-            display: flex;
-            align-items: center;
-            background-color: #30DFAB;
-            padding: 10px 20px;
-            position: relative;
-        }
-
-        .navbar .logo {
-            font-size: 24px;
-            font-weight: bold;
-            color: #000000;
-            flex: 1;
-        }
-
-        .navbar .icons {
-            display: flex;
-            gap: 50px;
-            position: absolute;
-            left: 50%;
-            transform: translate(-50%);
-        }
-
-        .navbar .icons i {
-            font-size: 25px;
-            width: 50px;
-            cursor: pointer;
-            color: #000000;
-        }
+        
 
         /* profile, name */
         .container {
@@ -215,16 +186,7 @@ if ($is_own_profile) {
 </head>
 <body>
 
-<nav class="navbar">
-    <div class="logo">BandMate</div>
-    <div class="icons">
-        <a href="dashboard.php"><i class="fa-solid fa-newspaper"></i></a>
-        <a href="search.php"><i class="fa-solid fa-search"></i></a>
-        <a href="contact.php"><i class="fa-solid fa-users"></i></a>
-        <a href="message.php"><i class="fa-solid fa-message"></i></a>
-        <a href="profile.php"><i class="fa-solid fa-user"></i></a>
-    </div>
-</nav>
+<?php include_once "component/navs.php" ?>
 
 <div class="container">
     <div class="prof">
