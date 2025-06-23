@@ -105,7 +105,7 @@
 <?php
 $currentPage = basename($_SERVER['PHP_SELF']);
 ?>
-
+<!-- nast/?code -->
 <nav class="navbar">
     <div class="logo">BandMate</div>
     <div class="icons">
